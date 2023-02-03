@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta http-equiv="Content-type" content="text/html; charset=utf-8" />
+    <title>ESP Server</title>
+    <style type="text/css">
+      body {
+        display: flex;
+        background-color: black;
+        color: bisque;
+        flex-direction: column;
+        align-items: center;
+        font-size: 1.5em;
+      }
+      li {
+        cursor: pointer;
+      }
+      button {
+        width: 70%;
+        font-size: 1em;
+      }
+      .container {
+        width: 500px;
+        display: flex;
+        align-items: center;
+        flex-direction: column;
+        padding-bottom: 10px;
+      }
+      @media screen and (max-device-width: 480px) {
+        .container {
+          width: 100%;
+        }
+      }
+      .row {
+        display: flex;
+        flex-direction: row;
+        width: 100%;
+      }
+      input {
+        width: 65%;
+        font-size: 1.5em;
+      }
+      div {
+        margin: 3px 0;
+      }
+      .label {
+        width: 20%;
+        text-align: end;
+      }
+      .home {
+        font-size: 1em;
+        position: absolute;
+        left: 0;
+        cursor: pointer;
+      }
+    </style>
+    <script type="text/javascript">
+      let selectedSsid = "";
+      let selectedPw = "";
+
+      function scanWifi() {
+        const li = document.querySelectorAll("li");
+        li.forEach((element) => {
+          element.remove();
+        });
+        try {
+          fetch("/scan");
+          setTimeout(() => viewWifi(), 3500);
+        } catch (err) {
+          console.log("/scan fail", err);
+        }
+      }
+
+      async function viewWifi() {
+        try {
+          let result = await fetch("/wifistatus");
+          result = await result.json();
+          console.log(result);
+
+          for (let i = 0; i < Object.keys(result).length; i++) {
+            const list = document.createElement("li");
+            list.id = i;
+            list.setAttribute("data-ssid", result[i].ssid);
+            list.innerText = result[i].ssid + " " + result[i].power;
+            list.onclick = function (e) {
+              document.querySelector("#ssid").value = selectedSsid =
+                result[i].ssid;
+            };
+            document.querySelector("#input_div").appendChild(list);
+          }
+        } catch (err) {
+          console.log("/wifistatus fail", err);
+        }
+      }
+
+      async function connect2ssid() {
+        console.log(selectedSsid, selectedPw);
+        try {
+          response = await fetch("/connect2ssid", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              ssid: selectedSsid,
+              passwd: selectedPw,
+            }),
+          });
+        } catch (err) {
+          console.log("connection fail", err);
+        }
+      }
+
+      function pwChange() {
+        selectedPw = document.querySelector("#passwd").value;
+      }
+
+      function resetWifi() {
+        fetch("/wifireset");
+      }
+    </script>
+  </head>
+  <body id="body">
+    <div class="home" onclick='javascript:window.location.href = "/"'>
+      처음으로
+    </div>
+    <h1>Wi-Fi</h1>
+    <p>접속할 WiFi정보를 입력하세요.</p>
+    <div class="container">
+      <div class="row">
+        <div class="label">SSID :</div>
+        <input type="text" id="ssid" />
+      </div>
+      <div class="row">
+        <div class="label">PASS :</div>
+        <input type="text" id="passwd" onkeyup="pwChange()" />
+      </div>
+      <button onclick="connect2ssid()">저장/접속</button>
+      <button onclick="resetWifi()">초기화</button>
+    </div>
+    <div class="container">
+      <button onclick="scanWifi()">WIFI검색</button>
+      <div id="input_div"></div>
+    </div>
+  </body>
+</html>
