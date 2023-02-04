@@ -129,6 +129,7 @@
           stb();
           if (e.keyCode == 13 && ge("input_el").value != "") {
             ws.send(ge("input_el").value);
+            addMessage(ge("input_el").value);
             ge("input_el").value = "";
           }
         };

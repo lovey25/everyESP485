@@ -50,7 +50,7 @@ void setupCONNECTION()
       delay(500);
       Serial.print(".");
       itt++;
-      if (itt > 50)
+      if (itt > 25)
       {
         Serial.printf("STA: Failed!\n");
         WiFi.disconnect(false);
@@ -239,15 +239,18 @@ void setupWEBPAGE()
         uint8 commaIndex = temp.indexOf(",") - 1;
         uint8 endIndex = temp.indexOf("}") - 1;
         String ssid = temp.substring(9, commaIndex);
-        String passwd = temp.substring(commaIndex + 11, endIndex);
+        String passwd = temp.substring(commaIndex + 12, endIndex);
+        Serial.println(temp);
+        Serial.println(ssid);
+        Serial.println(passwd);
 
         // ssid와 비번 저장
         File file = SPIFFS.open("/config.ini", "w");
         file.print(ssid + ";");
         file.print(passwd);
         file.close();
-        setupCONNECTION();
         request->send(200, "text/plain", "ssid and passwd saved");
+        ESP.restart();
       });
 
   server.on(
@@ -337,7 +340,7 @@ void setupWEBPAGE()
 
 void setup()
 {
-  Serial.begin(115200);
+  Serial.begin(9600);
   // Serial.setDebugOutput(true);
 
   setupWEBSOCKET();
