@@ -2,7 +2,8 @@
 <html>
   <head>
     <meta http-equiv="Content-type" content="text/html; charset=utf-8" />
-    <title>ESP Server</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>everyESP485</title>
     <style type="text/css">
       body {
         display: flex;
@@ -10,20 +11,36 @@
         color: bisque;
         flex-direction: column;
         align-items: center;
-        font-size: 1.5em;
+        font-size: 1em;
+        line-height: 1em;
       }
       li {
         cursor: pointer;
       }
       button {
+        border: 0;
+        border-radius: 0.3rem;
+        color: brown;
+        line-height: 3rem;
+        font-size: 1rem;
         width: 70%;
-        font-size: 1em;
+        margin: 0.5em;
+        cursor: pointer;
+      }
+      button:hover {
+        background-color: antiquewhite;
       }
       .container {
         width: 500px;
         display: flex;
         align-items: center;
         flex-direction: column;
+        outline: auto;
+      }
+      .container-row {
+        width: 70%;
+        display: flex;
+        align-items: center;
         padding-bottom: 10px;
       }
       @media screen and (max-device-width: 480px) {
@@ -38,7 +55,8 @@
       }
       input {
         width: 65%;
-        font-size: 1.5em;
+        font-size: 1em;
+        line-height: 1em;
       }
       div {
         margin: 3px 0;
@@ -124,7 +142,7 @@
     <div class="home" onclick='javascript:window.location.href = "/"'>
       처음으로
     </div>
-    <h1>Wi-Fi</h1>
+    <h2>Wi-Fi 설정</h2>
     <p>접속할 WiFi정보를 입력하세요.</p>
     <div class="container">
       <div class="row">
@@ -135,11 +153,13 @@
         <div class="label">PASS :</div>
         <input type="text" id="passwd" onkeyup="pwChange()" />
       </div>
-      <button onclick="connect2ssid()">저장/접속</button>
-      <button onclick="resetWifi()">초기화</button>
+      <div class="container-row">
+        <button onclick="connect2ssid()">저장/접속</button>
+        <button onclick="resetWifi()">초기화</button>
+      </div>
     </div>
     <div class="container">
-      <button onclick="scanWifi()">WIFI검색</button>
+      <button onclick="scanWifi()">WiFi scan</button>
       <div id="input_div"></div>
     </div>
   </body>
