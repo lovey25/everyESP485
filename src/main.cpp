@@ -112,11 +112,6 @@ void webSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEve
         }
       }
       Serial.printf("%s\n", msg.c_str());
-
-      if (info->opcode == WS_TEXT)
-        client->text("I got your text message");
-      else
-        client->binary("I got your binary message");
     }
     else
     {
@@ -154,10 +149,6 @@ void webSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEve
         if (info->final)
         {
           Serial.printf("ws[%s][%u] %s-message end\n", server->url(), client->id(), (info->message_opcode == WS_TEXT) ? "text" : "binary");
-          if (info->message_opcode == WS_TEXT)
-            client->text("I got your text message");
-          else
-            client->binary("I got your binary message");
         }
       }
     }
@@ -367,7 +358,7 @@ void loop()
     if (rc == '\n')
     {
       ws.binaryAll(buf, i);
-      Serial.write(buf, i);
+      // Serial.write(buf, i);
       i = 0;
     }
   }

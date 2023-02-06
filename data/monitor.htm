@@ -171,6 +171,7 @@
       }
       function callPreset(e) {
         ws.send(e.target.getAttribute("data-preset"));
+        addMessage(e.target.getAttribute("data-preset"));
       }
       async function loadPreset() {
         // 설정파일 불러오기
