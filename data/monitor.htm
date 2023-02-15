@@ -35,7 +35,6 @@
         flex-grow: 1;
         overflow-y: auto;
         height: 80%;
-        border-bottom: solid 1px beige;
       }
       #dbg,
       #input_div,
@@ -74,10 +73,13 @@
         width: 100%;
         display: flex;
         flex-direction: column;
+        padding-top: 10px;
+        padding-bottom: 10px;
       }
       #buttons {
         width: 100%;
         display: flex;
+        border: solid 1px beige;
       }
       button {
         margin: 0;
@@ -98,10 +100,7 @@
       function stb() {
         document
           .querySelector("#dbg")
-          .scrollTo(
-            0,
-            document.body.scrollHeight || document.documentElement.scrollHeight
-          );
+          .scrollTo(0, document.querySelector("#dbg").scrollHeight);
       }
       function sendBlob(str) {
         var buf = new Uint8Array(str.length);
@@ -242,8 +241,6 @@
     <pre id="dbg"></pre>
     <div id="popup" style="visibility: hidden"></div>
     <div id="footer">
-      <div id="input_div">><input type="text" value="" id="input_el" /></div>
-
       <div id="buttons">
         <button onclick='javascript:window.location.href = "./index.htm"'>
           처음으로
@@ -251,6 +248,7 @@
         <div id="presetcall"></div>
         <button onclick="togglePopup()">PRESET</button>
       </div>
+      <div id="input_div">><input type="text" value="" id="input_el" /></div>
     </div>
   </body>
 </html>

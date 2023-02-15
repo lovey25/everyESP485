@@ -129,6 +129,10 @@
         }
       }
 
+      function ssidChange() {
+        selectedSsid = document.querySelector("#ssid").value;
+      }
+
       function pwChange() {
         selectedPw = document.querySelector("#passwd").value;
       }
@@ -147,7 +151,7 @@
     <div class="container">
       <div class="row">
         <div class="label">SSID :</div>
-        <input type="text" id="ssid" />
+        <input type="text" id="ssid" onkeyup="ssidChange()" />
       </div>
       <div class="row">
         <div class="label">PASS :</div>
