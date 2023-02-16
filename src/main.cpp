@@ -7,6 +7,8 @@
 #include <ESPAsyncWebServer.h>
 #include <SPIFFSEditor.h>
 
+#define LED 2
+
 AsyncWebServer server(80);
 AsyncWebSocket ws("/ws");
 AsyncEventSource events("/events");
@@ -47,10 +49,13 @@ void setupCONNECTION()
     uint8 itt = 0;
     while (WiFi.status() != WL_CONNECTED)
     {
+      digitalWrite(LED, LOW);
       delay(500);
       Serial.print(".");
+      digitalWrite(LED, HIGH);
+      delay(500);
       itt++;
-      if (itt > 25)
+      if (itt > 15)
       {
         Serial.printf("STA: Failed!\n");
         WiFi.disconnect(false);
@@ -331,6 +336,8 @@ void setupWEBPAGE()
 
 void setup()
 {
+  pinMode(LED, OUTPUT);
+  digitalWrite(LED, HIGH);
   Serial.begin(9600);
   // Serial.setDebugOutput(true);
 
