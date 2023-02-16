@@ -1,0 +1,80 @@
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background-color: black;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+#dbg {
+  flex-grow: 1;
+  overflow-y: auto;
+  height: 80%;
+}
+#dbg,
+#input_div,
+#input_el {
+  font-family: monaco;
+  font-size: 1em;
+  line-height: 1em;
+  color: #aaa;
+}
+#dbg,
+#input_div {
+  margin: 0;
+  padding: 0;
+  padding-left: 4px;
+}
+#input_div button {
+  color: antiquewhite;
+  width: 50px;
+  background-color: #116496cf;
+}
+#dbgtype {
+  position: fixed;
+  right: 25px;
+  top: 0;
+  color: white;
+}
+#input_el {
+  width: 85%;
+  background-color: rgba(0, 0, 0, 0);
+  border: 0px;
+}
+#input_el:focus {
+  outline: none;
+}
+#popup {
+  outline: auto;
+  padding: 5px;
+  position: fixed;
+  z-index: 10;
+  bottom: 60px;
+  left: 71px;
+  display: flex;
+  flex-direction: column;
+  background-color: bisque;
+}
+#footer {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  padding-top: 10px;
+  padding-bottom: 10px;
+}
+#buttons {
+  width: 100%;
+  display: flex;
+  border-top: solid 1px beige;
+  border-bottom: solid 1px beige;
+  padding-left: 4px;
+}
+button {
+  margin: 0;
+  height: 100%;
+  cursor: pointer;
+}
+#presetcall {
+  margin: 0 5px;
+}
