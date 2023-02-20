@@ -26,6 +26,7 @@
       var ws = null;
       let dbgtype = "HEX";
       let inputtype = "HEX";
+
       function ge(s) {
         return document.getElementById(s);
       }
@@ -65,18 +66,29 @@
         };
         ws.onmessage = function (e) {
           var msg = "";
-          if (e.data instanceof ArrayBuffer) {
-            msg = "BIN:";
-            var bytes = new Uint8Array(e.data);
-            for (var i = 0; i < bytes.length; i++) {
-              msg += String.fromCharCode(bytes[i]);
+          if (dbgtype === "HEX") {
+            msg = "HEX:";
+            if (e.data instanceof ArrayBuffer) {
+              var bytes = new Uint8Array(e.data);
+              for (var i = 0; i < bytes.length; i++) {
+                msg += bytes[i].toString(16).padStart(2, "0") + " ";
+              }
+            } else {
+              msg = e.data;
             }
           } else {
-            msg = "TXT:" + e.data;
+            msg = "TXT:";
+            if (e.data instanceof ArrayBuffer) {
+              msg += new TextDecoder().decode(e.data);
+            } else {
+              msg = e.data;
+            }
           }
+
           addMessage(msg);
         };
         ge("input_el").onkeydown = function (e) {
+          // 엔터키(13)를 입력하면
           if (e.keyCode == 13 && ge("input_el").value != "") {
             // 문자열 송신 방식에 따라 구분
             if (inputtype === "ASCII") {
@@ -87,7 +99,7 @@
               const uint8 = new Uint8Array(txt.split(";"));
               ws.send(uint8);
             }
-            addMessage(ge("input_el").value);
+            addMessage(">>>:" + ge("input_el").value);
             ge("input_el").value = "";
           }
         };
@@ -137,7 +149,7 @@
           const uint8 = new Uint8Array(txt.split(";"));
           ws.send(uint8);
         }
-        addMessage(e.target.getAttribute("data-preset"));
+        addMessage(">>>:" + e.target.getAttribute("data-preset"));
       }
       async function loadPreset() {
         // 설정파일 불러오기
