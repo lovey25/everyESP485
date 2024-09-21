@@ -22,4 +22,14 @@ preset.ini 파일에 웹소켓으로 전송할 패킷 프리셋을 저장할 수
 - AsyncFSBrowser
 - ESPAsyncTCP
 
-## Hardware (준비중)
+## Hardware
+
+### 구성품
+
+- Wemos D1 mini
+- XY-017 RS485-TTL convertor
+- AMS1117-5V DCDC Stepdown module
+
+### 회로
+
+![HW](circuit/everyESP485_wtAMS1117.png)
