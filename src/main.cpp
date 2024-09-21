@@ -17,7 +17,7 @@ AsyncEventSource events("/events");
 
 String ssid;
 String password;
-const char *hostName = "everyESP485";
+const char *hostName = "everyESP";
 const char *http_username = USER_NAME;
 const char *http_password = USER_PASSWD;
 
@@ -355,7 +355,7 @@ void setup()
   setupOTA();
   setupWEBSOCKET();
   setupWEBPAGE();
-  MDNS.addService("http", "tcp", 80);
+  MDNS.addService(hostName, "tcp", 80);
   setupCONNECTION();
 }
 
