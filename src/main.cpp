@@ -10,6 +10,8 @@
 
 #define LED 2
 #define packTimeout 5 // ms (if nothing more on Serial, then send packet)
+#define ENABLE_WEBSOCKET 1
+#define ENABLE_WEBPAGE 1
 
 AsyncWebServer server(80);
 AsyncWebSocket ws("/ws");
@@ -22,6 +24,11 @@ const char *http_username = USER_NAME;
 const char *http_password = USER_PASSWD;
 
 int scanResult = 0;
+volatile uint32_t wsBinFrames = 0;
+volatile uint32_t wsBinBytes = 0;
+volatile uint32_t wsBinMaxLen = 0;
+volatile uint32_t wsTextFrames = 0;
+unsigned long wsLastLogMs = 0;
 
 void setupCONNECTION()
 {
@@ -79,7 +86,7 @@ void webSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEve
   {
     Serial.printf("ws[%s][%u] connect\n", server->url(), client->id());
     client->printf("Hello Client %u :)", client->id());
-    client->ping();
+    // client->ping();  // ping() causes reset - disabled for now
   }
   else if (type == WS_EVT_DISCONNECT)
   {
@@ -87,30 +94,42 @@ void webSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEve
   }
   else if (type == WS_EVT_ERROR)
   {
-    Serial.printf("ws[%s][%u] error(%u): %s\n", server->url(), client->id(), *((uint16_t *)arg), (char *)data);
+    (void)server;
+    (void)client;
+    (void)arg;
+    (void)data;
+    (void)len;
   }
   else if (type == WS_EVT_PONG)
   {
-    Serial.printf("ws[%s][%u] pong[%u]: %s\n", server->url(), client->id(), len, (len) ? (char *)data : "");
+    (void)server;
+    (void)client;
+    (void)arg;
+    (void)data;
+    (void)len;
   }
   else if (type == WS_EVT_DATA)
   {
+    if (len == 0)
+    {
+      return;
+    }
     AwsFrameInfo *info = (AwsFrameInfo *)arg;
-    String msg = "";
     if (info->final && info->index == 0 && info->len == len)
     {
       // the whole message is in a single frame and we got all of it's data
       if (info->opcode == WS_TEXT)
       {
-        for (size_t i = 0; i < info->len; i++)
-        {
-          msg += (char)data[i];
-        }
-        Serial.printf("%s\n", msg.c_str());
+        wsTextFrames++;
       }
       else
       {
-        Serial.write(data, info->len);
+        wsBinFrames++;
+        wsBinBytes += info->len;
+        if (info->len > wsBinMaxLen)
+        {
+          wsBinMaxLen = info->len;
+        }
       }
     }
     else
@@ -118,23 +137,16 @@ void webSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEve
       // message is comprised of multiple frames or the frame is split into multiple packets
       if (info->opcode == WS_TEXT)
       {
-        for (size_t i = 0; i < len; i++)
-        {
-          msg += (char)data[i];
-        }
-        Serial.println("WS_TEXT2");
-        Serial.printf("%s\n", msg.c_str());
+        wsTextFrames++;
       }
       else
       {
-        char buff[3];
-        for (size_t i = 0; i < len; i++)
+        wsBinFrames++;
+        wsBinBytes += len;
+        if (len > wsBinMaxLen)
         {
-          sprintf(buff, "%02x ", (uint8_t)data[i]);
-          msg += buff;
+          wsBinMaxLen = len;
         }
-        Serial.println("WS_TEXT2 else");
-        Serial.printf("%s\n", msg.c_str());
       }
     }
   }
@@ -142,14 +154,24 @@ void webSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEve
 
 void setupWEBSOCKET()
 {
-  ws.onEvent(webSocketEvent);
-  server.addHandler(&ws);
-  Serial.println("WebSocket server started.");
+  if (ENABLE_WEBSOCKET)
+  {
+    ws.onEvent(webSocketEvent);
+    server.addHandler(&ws);
+    Serial.println("WebSocket server started.");
+  }
+  else
+  {
+    Serial.println("WebSocket disabled.");
+  }
 }
 
 void setupWEBPAGE()
 {
-  SPIFFS.begin();
+  if (!ENABLE_WEBPAGE)
+  {
+    return;
+  }
 
   events.onConnect([](AsyncEventSourceClient *client)
                    { client->send("hello!", NULL, millis(), 1000); });
@@ -209,8 +231,9 @@ void setupWEBPAGE()
       NULL,
       [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total)
       {
-        char origin[total];
-        strncpy(origin, (char *)data, total);
+        char origin[total + 1];
+        memcpy(origin, (char *)data, total);
+        origin[total] = '\0';
         String temp = origin;
         uint8 commaIndex = temp.indexOf(",") - 1;
         uint8 endIndex = temp.indexOf("}") - 1;
@@ -235,8 +258,9 @@ void setupWEBPAGE()
       NULL,
       [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total)
       {
-        char origin[total];
-        strncpy(origin, (char *)data, total);
+        char origin[total + 1];
+        memcpy(origin, (char *)data, total);
+        origin[total] = '\0';
         String temp = origin;
         uint8 endIndex = temp.indexOf("}") + 1;
         String preset = temp.substring(0, endIndex);
@@ -299,7 +323,7 @@ void setupWEBPAGE()
                       {
     if(!index)
       Serial.printf("UploadStart: %s\n", filename.c_str());
-    Serial.printf("%s", (const char*)data);
+    Serial.write(data, len);
     if(final)
       Serial.printf("UploadEnd: %s (%u)\n", filename.c_str(), index+len); });
 
@@ -307,11 +331,50 @@ void setupWEBPAGE()
                        {
     if(!index)
       Serial.printf("BodyStart: %u\n", total);
-    Serial.printf("%s", (const char*)data);
+    Serial.write(data, len);
     if(index + len == total)
       Serial.printf("BodyEnd: %u\n", total); });
+}
 
-  server.begin();
+void setupHTTPMinimal()
+{
+  if (ENABLE_WEBPAGE)
+  {
+    return;
+  }
+
+  server.on("/ping", HTTP_GET, [](AsyncWebServerRequest *request)
+            { request->send(200, "text/plain", "ok"); });
+
+  server.onNotFound([](AsyncWebServerRequest *request)
+                    {
+    Serial.printf("NOT_FOUND: ");
+    if(request->method() == HTTP_GET)
+      Serial.printf("GET");
+    else if(request->method() == HTTP_POST)
+      Serial.printf("POST");
+    else if(request->method() == HTTP_DELETE)
+      Serial.printf("DELETE");
+    else if(request->method() == HTTP_PUT)
+      Serial.printf("PUT");
+    else if(request->method() == HTTP_PATCH)
+      Serial.printf("PATCH");
+    else if(request->method() == HTTP_HEAD)
+      Serial.printf("HEAD");
+    else if(request->method() == HTTP_OPTIONS)
+      Serial.printf("OPTIONS");
+    else
+      Serial.printf("UNKNOWN");
+    Serial.printf(" http://%s%s\n", request->host().c_str(), request->url().c_str());
+
+    int headers = request->headers();
+    int i;
+    for(i=0;i<headers;i++){
+      AsyncWebHeader* h = request->getHeader(i);
+      Serial.printf("_HEADER[%s]: %s\n", h->name().c_str(), h->value().c_str());
+    }
+
+    request->send(404); });
 }
 
 void setupOTA()
@@ -349,14 +412,36 @@ void setup()
 {
   pinMode(LED, OUTPUT);
   digitalWrite(LED, HIGH);
-  Serial.begin(9600);
+  Serial.begin(74880);
   // Serial.setDebugOutput(true);
+  Serial.printf("Reset reason: %s\n", ESP.getResetReason().c_str());
 
-  setupOTA();
+  Serial.println("setup: spiffs");
+  if (!SPIFFS.begin())
+  {
+    Serial.println("SPIFFS begin failed");
+  }
+
+  Serial.println("setup: websocket");
   setupWEBSOCKET();
+  Serial.println("setup: webpage");
   setupWEBPAGE();
-  MDNS.addService(hostName, "tcp", 80);
+  Serial.println("setup: http minimal");
+  setupHTTPMinimal();
+  Serial.println("setup: connection");
   setupCONNECTION();
+
+  Serial.println("setup: server begin");
+  server.begin();
+
+  if (WiFi.getMode() == WIFI_STA && WiFi.status() == WL_CONNECTED)
+  {
+    if (MDNS.begin(hostName))
+    {
+      MDNS.addService(hostName, "tcp", 80);
+    }
+    setupOTA();
+  }
 }
 
 #define bufferSize 8192
@@ -366,10 +451,28 @@ char rc;
 void loop()
 {
   ArduinoOTA.handle();
-  ws.cleanupClients();
+  if (ENABLE_WEBSOCKET)
+  {
+    ws.cleanupClients();
+  }
+
+  if (millis() - wsLastLogMs >= 5000)
+  {
+    if (wsBinFrames > 0 || wsTextFrames > 0)
+    {
+      Serial.printf("WS stats: bin=%u bytes=%u max=%u text=%u\n",
+                    wsBinFrames, wsBinBytes, wsBinMaxLen, wsTextFrames);
+    }
+    wsBinFrames = 0;
+    wsBinBytes = 0;
+    wsBinMaxLen = 0;
+    wsTextFrames = 0;
+    wsLastLogMs = millis();
+  }
 
   if (Serial.available())
   {
+    const unsigned long loopStartMs = millis();
     while (1)
     {
       if (Serial.available())
@@ -377,6 +480,14 @@ void loop()
         buf[i] = (char)Serial.read(); // read char from UART
         if (i < bufferSize - 1)
           i++;
+        if ((i % 64) == 0)
+        {
+          yield();
+          if (millis() - loopStartMs > 1000)
+          {
+            break;
+          }
+        }
       }
       else
       {
@@ -389,6 +500,11 @@ void loop()
     }
   }
 
-  ws.binaryAll(buf, i); // now send to WiFi:
-  i = 0;
+  if (ENABLE_WEBSOCKET && i > 0)
+  {
+    ws.binaryAll(buf, i); // now send to WiFi:
+    i = 0;
+  }
+
+  yield();
 }

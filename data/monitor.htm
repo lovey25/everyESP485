@@ -15,7 +15,7 @@
   License along with this library; if not, write to the Free Software
   Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 -->
-<!DOCTYPE html>
+<!doctype html>
 <html>
   <head>
     <meta http-equiv="Content-type" content="text/html; charset=utf-8" />
@@ -34,25 +34,43 @@
         return document.createElement(s);
       }
       function stb() {
-        document
-          .querySelector("#dbg")
-          .scrollTo(0, document.querySelector("#dbg").scrollHeight);
+        document.querySelector("#dbg").scrollTo(0, document.querySelector("#dbg").scrollHeight);
       }
       function sendBlob(str) {
         var buf = new Uint8Array(str.length);
         for (var i = 0; i < str.length; ++i) buf[i] = str.charCodeAt(i);
         ws.send(buf);
       }
+      const MAX_LINES = 500;
+      const MAX_BYTES = 64;
+      const MAX_TEXT = 256;
+
+      function trimDbg() {
+        const dbg = ge("dbg");
+        while (dbg.childNodes.length > MAX_LINES) {
+          dbg.removeChild(dbg.firstChild);
+        }
+      }
+
+      function formatHex(bytes) {
+        const len = Math.min(bytes.length, MAX_BYTES);
+        let out = "";
+        for (let i = 0; i < len; i++) {
+          out += bytes[i].toString(16).padStart(2, "0") + " ";
+        }
+        if (bytes.length > MAX_BYTES) out += "...";
+        return out;
+      }
+
       function addMessage(m) {
         var msg = ce("div");
         msg.innerText = m;
         ge("dbg").appendChild(msg);
+        trimDbg();
         stb();
       }
       function startSocket() {
-        ws = new WebSocket("ws://" + document.location.host + "/ws", [
-          "arduino",
-        ]);
+        ws = new WebSocket("ws://" + document.location.host + "/ws", ["arduino"]);
         ws.binaryType = "arraybuffer";
         ws.onopen = function (e) {
           addMessage("Connected");
@@ -65,23 +83,22 @@
           addMessage("Error");
         };
         ws.onmessage = function (e) {
-          var msg = "";
+          let msg = "";
           if (dbgtype === "HEX") {
             msg = "HEX:";
             if (e.data instanceof ArrayBuffer) {
-              var bytes = new Uint8Array(e.data);
-              for (var i = 0; i < bytes.length; i++) {
-                msg += bytes[i].toString(16).padStart(2, "0") + " ";
-              }
+              msg += formatHex(new Uint8Array(e.data));
             } else {
-              msg = e.data;
+              msg += String(e.data).slice(0, MAX_TEXT);
             }
           } else {
             msg = "TXT:";
             if (e.data instanceof ArrayBuffer) {
-              msg += new TextDecoder().decode(e.data);
+              const text = new TextDecoder().decode(e.data);
+              msg += text.length > MAX_TEXT ? text.slice(0, MAX_TEXT) + "..." : text;
             } else {
-              msg = e.data;
+              const text = String(e.data);
+              msg += text.length > MAX_TEXT ? text.slice(0, MAX_TEXT) + "..." : text;
             }
           }
 
@@ -122,7 +139,7 @@
           function (e) {
             addMessage("Event[ota]: " + e.data);
           },
-          false
+          false,
         );
       }
       async function savePreset(data) {
@@ -219,16 +236,12 @@
     </script>
   </head>
   <body id="body" onload="onBodyLoad()">
-    <div id="dbgtype">
-      문자열 표시형식 전환<button onclick="toggleDbgType()">HEX > ASCII</button>
-    </div>
+    <div id="dbgtype">문자열 표시형식 전환<button onclick="toggleDbgType()">HEX > ASCII</button></div>
     <pre id="dbg"></pre>
     <div id="popup" style="visibility: hidden"></div>
     <div id="footer">
       <div id="buttons">
-        <button onclick='javascript:window.location.href = "./index.htm"'>
-          HOME
-        </button>
+        <button onclick="javascript: window.location.href = './index.htm';">HOME</button>
         <div id="presetcall"></div>
         <button onclick="togglePopup()">PRESET</button>
       </div>
