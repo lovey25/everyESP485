@@ -153,4 +153,9 @@ python3 test_serial.py
 
 ### 회로
 
-![HW](circuit/everyESP485_wtAMS1117.png)
+<table>
+  <tr>
+    <td><img src="circuit/everyESP485_wtAMS1117.png" alt="HW" height="300"></td>
+    <td><img src="circuit/hardware_sample.jpeg" alt="SAMPLE" height="300"></td>
+  </tr>
+</table>
