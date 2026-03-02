@@ -12,6 +12,18 @@
 #define packTimeout 5 // ms (if nothing more on Serial, then send packet)
 #define ENABLE_WEBSOCKET 1
 #define ENABLE_WEBPAGE 1
+#define DEBUG_HEX 0       // RS485 라인 오염 방지를 위해 기본 비활성화
+#define RS485_CLEAN_BUS 1 // 1이면 RS485 라인에 디버그 문자열 출력 금지
+
+#if RS485_CLEAN_BUS
+#define DBG_PRINT(...)
+#define DBG_PRINTLN(...)
+#define DBG_PRINTF(...)
+#else
+#define DBG_PRINT(...) Serial.print(__VA_ARGS__)
+#define DBG_PRINTLN(...) Serial.println(__VA_ARGS__)
+#define DBG_PRINTF(...) Serial.printf(__VA_ARGS__)
+#endif
 
 AsyncWebServer server(80);
 AsyncWebSocket ws("/ws");
@@ -37,7 +49,7 @@ void setupCONNECTION()
   if (!file || file.isDirectory())
   {
     // 1-1 저장된 ssid가 없으면 AP모드 실행
-    Serial.println("AP모드");
+    DBG_PRINTLN("AP모드");
     WiFi.mode(WIFI_AP);
     WiFi.softAP(hostName);
     return;
@@ -45,38 +57,38 @@ void setupCONNECTION()
   else
   {
     // 2. 저장 파일 불러오기
-    Serial.println("STA모드");
+    DBG_PRINTLN("STA모드");
     ssid = file.readStringUntil(';');
     password = file.readStringUntil(';');
-    Serial.println(ssid);
-    Serial.println(password);
+    DBG_PRINTLN(ssid);
+    DBG_PRINTLN(password);
 
     // 3. 접속 시도
     WiFi.mode(WIFI_STA);
     WiFi.begin(ssid, password);
-    Serial.println("\n");
+    DBG_PRINTLN("\n");
     uint8 itt = 0;
     while (WiFi.status() != WL_CONNECTED)
     {
       digitalWrite(LED, LOW);
       delay(500);
-      Serial.print(".");
+      DBG_PRINT(".");
       digitalWrite(LED, HIGH);
       delay(500);
       itt++;
       if (itt > 15)
       {
-        Serial.printf("STA: Failed!\n");
+        DBG_PRINTF("STA: Failed!\n");
         WiFi.disconnect(false);
         WiFi.mode(WIFI_AP);
         WiFi.softAP(hostName);
         return;
       }
     }
-    Serial.println('\n');
-    Serial.println("Connected!");
-    Serial.print("IP address:\t");
-    Serial.println(WiFi.localIP()); // 할당받은 IP주소 표시
+    DBG_PRINTLN();
+    DBG_PRINTLN("Connected!");
+    DBG_PRINT("IP address:\t");
+    DBG_PRINTLN(WiFi.localIP()); // 할당받은 IP주소 표시
   }
 }
 
@@ -84,13 +96,13 @@ void webSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEve
 {
   if (type == WS_EVT_CONNECT)
   {
-    Serial.printf("ws[%s][%u] connect\n", server->url(), client->id());
+    DBG_PRINTF("ws[%s][%u] connect\n", server->url(), client->id());
     client->printf("Hello Client %u :)", client->id());
     // client->ping();  // ping() causes reset - disabled for now
   }
   else if (type == WS_EVT_DISCONNECT)
   {
-    Serial.printf("ws[%s][%u] disconnect\n", server->url(), client->id());
+    DBG_PRINTF("ws[%s][%u] disconnect\n", server->url(), client->id());
   }
   else if (type == WS_EVT_ERROR)
   {
@@ -121,6 +133,7 @@ void webSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEve
       if (info->opcode == WS_TEXT)
       {
         wsTextFrames++;
+        Serial.write(data, len);
       }
       else
       {
@@ -130,6 +143,7 @@ void webSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEve
         {
           wsBinMaxLen = info->len;
         }
+        Serial.write(data, len);
       }
     }
     else
@@ -138,6 +152,7 @@ void webSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEve
       if (info->opcode == WS_TEXT)
       {
         wsTextFrames++;
+        Serial.write(data, len);
       }
       else
       {
@@ -147,6 +162,7 @@ void webSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEve
         {
           wsBinMaxLen = len;
         }
+        Serial.write(data, len);
       }
     }
   }
@@ -158,11 +174,11 @@ void setupWEBSOCKET()
   {
     ws.onEvent(webSocketEvent);
     server.addHandler(&ws);
-    Serial.println("WebSocket server started.");
+    DBG_PRINTLN("WebSocket server started.");
   }
   else
   {
-    Serial.println("WebSocket disabled.");
+    DBG_PRINTLN("WebSocket disabled.");
   }
 }
 
@@ -205,14 +221,14 @@ void setupWEBPAGE()
         String phyMode;
         const char *wps = "";
         char buffer[200];
-        sprintf(buffer, PSTR("\"%d\": {\"channel\":\"%02d\"\, \"power\":\"%ddBm\"\, \"scanEncryptionType\":\"%c\"\, \"scanHidden\":\"%c\"\, \"phyMode\":\"%-11s\"\,\"wps\":\"%3S\"\,\"ssid\":\"%s\"}"), 
-                        i, scanChannel, scanRssi, (scanEncryptionType == ENC_TYPE_NONE) ? ' ' : '*', scanHidden ? 'H' : 'V', phyMode.c_str(), wps, scanSsid.c_str());
+        sprintf(buffer, PSTR("\"%d\": {\"channel\":\"%02d\", \"power\":\"%ddBm\", \"scanEncryptionType\":\"%c\", \"scanHidden\":\"%c\", \"phyMode\":\"%-11s\",\"wps\":\"%3S\",\"ssid\":\"%s\"}"),
+                i, scanChannel, scanRssi, (scanEncryptionType == ENC_TYPE_NONE) ? ' ' : '*', scanHidden ? 'H' : 'V', phyMode.c_str(), wps, scanSsid.c_str());
         
         strResult += buffer;
         strResult += ",";
     }
   } else {
-    Serial.printf(PSTR("WiFi scan error %d"), scanResult);
+    DBG_PRINTF(PSTR("WiFi scan error %d"), scanResult);
   }
   strResult += "}";
   strResult.replace("},}", "}}");
@@ -227,7 +243,7 @@ void setupWEBPAGE()
 
   server.on(
       "/connect2ssid", HTTP_POST, [](AsyncWebServerRequest *request)
-      { Serial.println("connect2ssid"); },
+      { DBG_PRINTLN("connect2ssid"); },
       NULL,
       [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total)
       {
@@ -239,9 +255,9 @@ void setupWEBPAGE()
         uint8 endIndex = temp.indexOf("}") - 1;
         String ssid = temp.substring(9, commaIndex);
         String passwd = temp.substring(commaIndex + 12, endIndex);
-        Serial.println(temp);
-        Serial.println(ssid);
-        Serial.println(passwd);
+        DBG_PRINTLN(temp);
+        DBG_PRINTLN(ssid);
+        DBG_PRINTLN(passwd);
 
         // ssid와 비번 저장
         File file = SPIFFS.open("/config.ini", "w");
@@ -254,7 +270,7 @@ void setupWEBPAGE()
 
   server.on(
       "/savepreset", HTTP_POST, [](AsyncWebServerRequest *request)
-      { Serial.println("savepreset"); },
+      { DBG_PRINTLN("savepreset"); },
       NULL,
       [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total)
       {
@@ -274,66 +290,7 @@ void setupWEBPAGE()
   server.serveStatic("/", SPIFFS, "/").setDefaultFile("index.htm");
 
   server.onNotFound([](AsyncWebServerRequest *request)
-                    {
-    Serial.printf("NOT_FOUND: ");
-    if(request->method() == HTTP_GET)
-      Serial.printf("GET");
-    else if(request->method() == HTTP_POST)
-      Serial.printf("POST");
-    else if(request->method() == HTTP_DELETE)
-      Serial.printf("DELETE");
-    else if(request->method() == HTTP_PUT)
-      Serial.printf("PUT");
-    else if(request->method() == HTTP_PATCH)
-      Serial.printf("PATCH");
-    else if(request->method() == HTTP_HEAD)
-      Serial.printf("HEAD");
-    else if(request->method() == HTTP_OPTIONS)
-      Serial.printf("OPTIONS");
-    else
-      Serial.printf("UNKNOWN");
-    Serial.printf(" http://%s%s\n", request->host().c_str(), request->url().c_str());
-
-    if(request->contentLength()){
-      Serial.printf("_CONTENT_TYPE: %s\n", request->contentType().c_str());
-      Serial.printf("_CONTENT_LENGTH: %u\n", request->contentLength());
-    }
-
-    int headers = request->headers();
-    int i;
-    for(i=0;i<headers;i++){
-      AsyncWebHeader* h = request->getHeader(i);
-      Serial.printf("_HEADER[%s]: %s\n", h->name().c_str(), h->value().c_str());
-    }
-
-    int params = request->params();
-    for(i=0;i<params;i++){
-      AsyncWebParameter* p = request->getParam(i);
-      if(p->isFile()){
-        Serial.printf("_FILE[%s]: %s, size: %u\n", p->name().c_str(), p->value().c_str(), p->size());
-      } else if(p->isPost()){
-        Serial.printf("_POST[%s]: %s\n", p->name().c_str(), p->value().c_str());
-      } else {
-        Serial.printf("_GET[%s]: %s\n", p->name().c_str(), p->value().c_str());
-      }
-    }
-
-    request->send(404); });
-  server.onFileUpload([](AsyncWebServerRequest *request, const String &filename, size_t index, uint8_t *data, size_t len, bool final)
-                      {
-    if(!index)
-      Serial.printf("UploadStart: %s\n", filename.c_str());
-    Serial.write(data, len);
-    if(final)
-      Serial.printf("UploadEnd: %s (%u)\n", filename.c_str(), index+len); });
-
-  server.onRequestBody([](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total)
-                       {
-    if(!index)
-      Serial.printf("BodyStart: %u\n", total);
-    Serial.write(data, len);
-    if(index + len == total)
-      Serial.printf("BodyEnd: %u\n", total); });
+                    { request->send(404); });
 }
 
 void setupHTTPMinimal()
@@ -347,34 +304,7 @@ void setupHTTPMinimal()
             { request->send(200, "text/plain", "ok"); });
 
   server.onNotFound([](AsyncWebServerRequest *request)
-                    {
-    Serial.printf("NOT_FOUND: ");
-    if(request->method() == HTTP_GET)
-      Serial.printf("GET");
-    else if(request->method() == HTTP_POST)
-      Serial.printf("POST");
-    else if(request->method() == HTTP_DELETE)
-      Serial.printf("DELETE");
-    else if(request->method() == HTTP_PUT)
-      Serial.printf("PUT");
-    else if(request->method() == HTTP_PATCH)
-      Serial.printf("PATCH");
-    else if(request->method() == HTTP_HEAD)
-      Serial.printf("HEAD");
-    else if(request->method() == HTTP_OPTIONS)
-      Serial.printf("OPTIONS");
-    else
-      Serial.printf("UNKNOWN");
-    Serial.printf(" http://%s%s\n", request->host().c_str(), request->url().c_str());
-
-    int headers = request->headers();
-    int i;
-    for(i=0;i<headers;i++){
-      AsyncWebHeader* h = request->getHeader(i);
-      Serial.printf("_HEADER[%s]: %s\n", h->name().c_str(), h->value().c_str());
-    }
-
-    request->send(404); });
+                    { request->send(404); });
 }
 
 void setupOTA()
@@ -405,33 +335,33 @@ void setupOTA()
     else if(error == OTA_END_ERROR) events.send("End Failed", "ota"); });
 
   ArduinoOTA.begin();
-  Serial.println("OTA Ready");
+  DBG_PRINTLN("OTA Ready");
 }
 
 void setup()
 {
   pinMode(LED, OUTPUT);
   digitalWrite(LED, HIGH);
-  Serial.begin(74880);
+  Serial.begin(9600);
   // Serial.setDebugOutput(true);
-  Serial.printf("Reset reason: %s\n", ESP.getResetReason().c_str());
+  DBG_PRINTF("Reset reason: %s\n", ESP.getResetReason().c_str());
 
-  Serial.println("setup: spiffs");
+  DBG_PRINTLN("setup: spiffs");
   if (!SPIFFS.begin())
   {
-    Serial.println("SPIFFS begin failed");
+    DBG_PRINTLN("SPIFFS begin failed");
   }
 
-  Serial.println("setup: websocket");
+  DBG_PRINTLN("setup: websocket");
   setupWEBSOCKET();
-  Serial.println("setup: webpage");
+  DBG_PRINTLN("setup: webpage");
   setupWEBPAGE();
-  Serial.println("setup: http minimal");
+  DBG_PRINTLN("setup: http minimal");
   setupHTTPMinimal();
-  Serial.println("setup: connection");
+  DBG_PRINTLN("setup: connection");
   setupCONNECTION();
 
-  Serial.println("setup: server begin");
+  DBG_PRINTLN("setup: server begin");
   server.begin();
 
   if (WiFi.getMode() == WIFI_STA && WiFi.status() == WL_CONNECTED)
@@ -460,8 +390,8 @@ void loop()
   {
     if (wsBinFrames > 0 || wsTextFrames > 0)
     {
-      Serial.printf("WS stats: bin=%u bytes=%u max=%u text=%u\n",
-                    wsBinFrames, wsBinBytes, wsBinMaxLen, wsTextFrames);
+      DBG_PRINTF("WS stats: bin=%u bytes=%u max=%u text=%u\n",
+                 wsBinFrames, wsBinBytes, wsBinMaxLen, wsTextFrames);
     }
     wsBinFrames = 0;
     wsBinBytes = 0;
@@ -473,13 +403,21 @@ void loop()
   if (Serial.available())
   {
     const unsigned long loopStartMs = millis();
+    i = 0; // 버퍼 인덱스 초기화
     while (1)
     {
       if (Serial.available())
       {
-        buf[i] = (char)Serial.read(); // read char from UART
-        if (i < bufferSize - 1)
+        if (i < bufferSize)
+        {
+          buf[i] = (uint8_t)Serial.read(); // read byte from UART
           i++;
+        }
+        else
+        {
+          Serial.read(); // 버퍼 초과시 데이터 버림
+        }
+
         if ((i % 64) == 0)
         {
           yield();
@@ -500,9 +438,21 @@ void loop()
     }
   }
 
-  if (ENABLE_WEBSOCKET && i > 0)
+  if (i > 0)
   {
+#if DEBUG_HEX
+    // HEX 값 출력
+    DBG_PRINT("HEX:");
+    for (uint16_t j = 0; j < i; j++)
+    {
+      DBG_PRINTF("%02X ", buf[j]);
+    }
+    DBG_PRINTLN();
+#endif
+
+#if ENABLE_WEBSOCKET
     ws.binaryAll(buf, i); // now send to WiFi:
+#endif
     i = 0;
   }
 
