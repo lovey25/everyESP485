@@ -10,7 +10,7 @@ import sys
 
 # 설정
 PORT = '/dev/cu.usbserial-110'
-BAUD = 74880
+BAUD = 9600
 TEST_MODES = {
     '1': ('작은 패킷 연속 전송', b'\x01\x02\x03\x04\x05', 100, 0.05),
     '2': ('중간 패킷 연속 전송', b'\xAA\x55' * 50, 50, 0.1),

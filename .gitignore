@@ -4,3 +4,5 @@
 .vscode/launch.json
 .vscode/ipch
 .ds_store
+
+/data/config.ini

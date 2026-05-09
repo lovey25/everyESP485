@@ -1,64 +1,29 @@
 <!DOCTYPE html>
-<html>
+<html lang="ko">
   <head>
-    <meta http-equiv="Content-type" content="text/html; charset=utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#0b0f17" />
     <title>everyESP485</title>
-    <style type="text/css">
-      body {
-        display: flex;
-        background-color: black;
-        color: bisque;
-        flex-direction: column;
-        align-items: center;
-        font-size: 2em;
-      }
-      button {
-        border: 0;
-        border-radius: 0.3rem;
-        color: brown;
-        line-height: 3rem;
-        font-size: 1.2rem;
-        width: 100%;
-        margin: 0.5em;
-        cursor: pointer;
-      }
-      button:hover {
-        background-color: antiquewhite;
-      }
-      .container {
-        width: 500px;
-        display: flex;
-        align-items: center;
-        flex-direction: column;
-      }
-      @media screen and (max-device-width: 480px) {
-        .container {
-          width: 100%;
-        }
-      }
-      .row {
-        display: flex;
-        flex-direction: row;
-        width: 100%;
-      }
-    </style>
-    <script type="text/javascript">
-      function goMonitor() {
-        window.location.href = "/monitor.htm";
-      }
-
-      function goSetting() {
-        window.location.href = "/wifi.htm";
-      }
-    </script>
+    <link rel="stylesheet" href="./style.css" />
   </head>
-  <body id="body">
-    <h2>everyESP485</h2>
-    <div>RS485 Web Monitor</div>
+  <body class="page-home">
+    <div class="hero">
+      <div class="logo">485</div>
+      <h1>everyESP485</h1>
+      <div class="subtitle">RS485 ↔ WebSocket Bridge</div>
+    </div>
     <div class="container">
-      <button onclick="goMonitor()">모니터 실행</button>
-      <button onclick="goSetting()">WiFi 설정</button>
+      <button type="button" class="card" onclick="location.href='/monitor.htm'">
+        <span class="card-icon">›_</span>
+        <span class="card-title">모니터 실행</span>
+        <span class="card-desc">RS485 패킷을 실시간 HEX/ASCII로 보고 송신</span>
+      </button>
+      <button type="button" class="card" onclick="location.href='/wifi.htm'">
+        <span class="card-icon">⌁</span>
+        <span class="card-title">WiFi 설정</span>
+        <span class="card-desc">네트워크 스캔, 접속, 초기화</span>
+      </button>
     </div>
   </body>
 </html>

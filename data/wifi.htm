@@ -1,170 +1,171 @@
 <!DOCTYPE html>
-<html>
+<html lang="ko">
   <head>
-    <meta http-equiv="Content-type" content="text/html; charset=utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>everyESP485</title>
-    <style type="text/css">
-      body {
-        display: flex;
-        background-color: black;
-        color: bisque;
-        flex-direction: column;
-        align-items: center;
-        font-size: 1em;
-        line-height: 1em;
-      }
-      li {
-        cursor: pointer;
-      }
-      button {
-        border: 0;
-        border-radius: 0.3rem;
-        color: brown;
-        line-height: 3rem;
-        font-size: 1rem;
-        width: 70%;
-        margin: 0.5em;
-        cursor: pointer;
-      }
-      button:hover {
-        background-color: antiquewhite;
-      }
-      .container {
-        width: 500px;
-        display: flex;
-        align-items: center;
-        flex-direction: column;
-        outline: auto;
-      }
-      .container-row {
-        width: 70%;
-        display: flex;
-        align-items: center;
-        padding-bottom: 10px;
-      }
-      @media screen and (max-device-width: 480px) {
-        .container {
-          width: 100%;
-        }
-      }
-      .row {
-        display: flex;
-        flex-direction: row;
-        width: 100%;
-      }
-      input {
-        width: 65%;
-        font-size: 1em;
-        line-height: 1em;
-      }
-      div {
-        margin: 3px 0;
-      }
-      .label {
-        width: 20%;
-        text-align: end;
-      }
-      .home {
-        font-size: 1em;
-        position: absolute;
-        left: 0;
-        cursor: pointer;
-      }
-    </style>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#0b0f17" />
+    <title>everyESP485 — WiFi</title>
+    <link rel="stylesheet" href="./style.css" />
     <script type="text/javascript">
-      let selectedSsid = "";
-      let selectedPw = "";
+      "use strict";
 
-      function scanWifi() {
-        const li = document.querySelectorAll("li");
-        li.forEach((element) => {
-          element.remove();
-        });
+      let selectedSsid = "";
+      let pwVisible = false;
+
+      function ge(id) { return document.getElementById(id); }
+      function ce(t) { return document.createElement(t); }
+
+      function rssiToBars(dbm) {
+        if (dbm >= -55) return 4;
+        if (dbm >= -67) return 3;
+        if (dbm >= -75) return 2;
+        return 1;
+      }
+
+      function showToast(msg, ms) {
+        const t = ge("toast");
+        t.innerText = msg;
+        t.classList.add("show");
+        clearTimeout(showToast._t);
+        showToast._t = setTimeout(() => t.classList.remove("show"), ms || 2200);
+      }
+
+      async function scanWifi() {
+        const list = ge("aplist");
+        list.innerHTML =
+          '<div class="ap ap-empty">스캔 중…</div>';
         try {
-          fetch("/scan");
-          setTimeout(() => viewWifi(), 3500);
+          await fetch("/scan");
+          setTimeout(viewWifi, 3500);
         } catch (err) {
           console.log("/scan fail", err);
+          showToast("스캔 실패");
         }
       }
 
       async function viewWifi() {
+        const list = ge("aplist");
         try {
-          let result = await fetch("/wifistatus");
-          result = await result.json();
-          console.log(result);
-
-          for (let i = 0; i < Object.keys(result).length; i++) {
-            const list = document.createElement("li");
-            list.id = i;
-            list.setAttribute("data-ssid", result[i].ssid);
-            list.innerText = result[i].ssid + " " + result[i].power;
-            list.onclick = function (e) {
-              document.querySelector("#ssid").value = selectedSsid =
-                result[i].ssid;
-            };
-            document.querySelector("#input_div").appendChild(list);
+          const result = await (await fetch("/wifistatus")).json();
+          list.innerHTML = "";
+          const entries = Object.values(result);
+          // Sort: stronger signal first
+          entries.sort((a, b) => {
+            const ra = parseInt(a.power) || -100;
+            const rb = parseInt(b.power) || -100;
+            return rb - ra;
+          });
+          if (entries.length === 0) {
+            list.innerHTML =
+              '<div class="ap ap-empty">네트워크가 없습니다</div>';
+            return;
           }
+          entries.forEach((ap) => {
+            const dbm = parseInt(ap.power) || -100;
+            const enc = ap.scanEncryptionType && ap.scanEncryptionType.trim() === "*";
+            const row = ce("div");
+            row.className = "ap";
+            row.setAttribute("data-ssid", ap.ssid);
+            row.innerHTML =
+              '<span class="ap-ssid">' + escapeHtml(ap.ssid || "(hidden)") + "</span>" +
+              '<span class="ap-meta">' +
+              (enc ? '<span class="lock" title="암호화됨">🔒</span>' : '<span class="lock" title="개방형">🔓</span>') +
+              '<span>' + dbm + "dBm</span>" +
+              '<span class="bars" data-strength="' + rssiToBars(dbm) + '"><i></i><i></i><i></i><i></i></span>' +
+              "</span>";
+            row.onclick = () => selectAp(row, ap.ssid);
+            list.appendChild(row);
+          });
         } catch (err) {
           console.log("/wifistatus fail", err);
+          list.innerHTML =
+            '<div class="ap ap-error">스캔 결과 로드 실패</div>';
         }
+      }
+
+      function selectAp(row, ssid) {
+        document.querySelectorAll(".ap.selected").forEach((e) => e.classList.remove("selected"));
+        row.classList.add("selected");
+        selectedSsid = ssid;
+        ge("ssid").value = ssid;
+        ge("passwd").focus();
+      }
+
+      function escapeHtml(s) {
+        return String(s).replace(/[&<>"']/g, (c) => ({
+          "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+        })[c]);
+      }
+
+      function togglePwVisibility() {
+        pwVisible = !pwVisible;
+        const i = ge("passwd");
+        i.type = pwVisible ? "text" : "password";
+        ge("pwToggle").innerText = pwVisible ? "숨김" : "표시";
       }
 
       async function connect2ssid() {
-        console.log(selectedSsid, selectedPw);
+        const ssid = ge("ssid").value.trim();
+        const passwd = ge("passwd").value;
+        if (!ssid) { showToast("SSID를 입력하세요"); return; }
+        showToast("저장 중…", 30000);
         try {
-          response = await fetch("/connect2ssid", {
+          await fetch("/connect2ssid", {
             method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              ssid: selectedSsid,
-              passwd: selectedPw,
-            }),
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ssid: ssid, passwd: passwd }),
           });
+          showToast("저장됨. 재부팅 후 새 IP로 접속하세요");
         } catch (err) {
           console.log("connection fail", err);
+          showToast("저장 실패");
         }
       }
 
-      function ssidChange() {
-        selectedSsid = document.querySelector("#ssid").value;
-      }
-
-      function pwChange() {
-        selectedPw = document.querySelector("#passwd").value;
-      }
-
-      function resetWifi() {
-        fetch("/wifireset");
+      async function resetWifi() {
+        if (!confirm("WiFi 설정을 초기화하고 AP 모드(everyESP / 192.168.4.1)로 전환합니다. 계속할까요?")) return;
+        try {
+          await fetch("/wifireset");
+          showToast("초기화됨. AP 모드로 전환 중…");
+        } catch (err) {
+          showToast("초기화 실패");
+        }
       }
     </script>
   </head>
-  <body id="body">
-    <div class="home" onclick='javascript:window.location.href = "/"'>
-      처음으로
+  <body class="page-wifi">
+    <div class="topnav">
+      <h2>WiFi 설정</h2>
+      <a class="home-link" href="/">← 홈</a>
     </div>
-    <h2>Wi-Fi 설정</h2>
-    <p>접속할 WiFi정보를 입력하세요.</p>
+
     <div class="container">
+      <div class="section-title">접속 정보</div>
       <div class="row">
-        <div class="label">SSID :</div>
-        <input type="text" id="ssid" onkeyup="ssidChange()" />
+        <label for="ssid">SSID</label>
+        <input type="text" id="ssid" autocomplete="off" placeholder="네트워크 이름" />
       </div>
       <div class="row">
-        <div class="label">PASS :</div>
-        <input type="text" id="passwd" onkeyup="pwChange()" />
+        <label for="passwd">비밀번호</label>
+        <div class="input-group">
+          <input type="password" id="passwd" autocomplete="new-password" placeholder="비밀번호" />
+          <button type="button" id="pwToggle" class="toggle-vis" onclick="togglePwVisibility()">표시</button>
+        </div>
       </div>
-      <div class="container-row">
-        <button onclick="connect2ssid()">저장/접속</button>
-        <button onclick="resetWifi()">초기화</button>
+      <div class="actions">
+        <button type="button" class="btn-primary" onclick="connect2ssid()">저장 / 접속</button>
+        <button type="button" class="btn-danger" onclick="resetWifi()">초기화</button>
       </div>
     </div>
+
     <div class="container">
-      <button onclick="scanWifi()">WiFi scan</button>
-      <div id="input_div"></div>
+      <div class="scan-header">
+        <div class="section-title">주변 네트워크</div>
+        <button type="button" class="scan-btn" onclick="scanWifi()">스캔</button>
+      </div>
+      <div id="aplist"></div>
     </div>
+
+    <div id="toast" class="toast"></div>
   </body>
 </html>

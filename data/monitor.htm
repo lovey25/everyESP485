@@ -1,155 +1,283 @@
-<!--
-  FSWebServer - Example Index Page
-  Copyright (c) 2015 Hristo Gochkov. All rights reserved.
-  This file is part of the ESP8266WebServer library for Arduino environment.
-
-  This library is free software; you can redistribute it and/or
-  modify it under the terms of the GNU Lesser General Public
-  License as published by the Free Software Foundation; either
-  version 2.1 of the License, or (at your option) any later version.
-  This library is distributed in the hope that it will be useful,
-  but WITHOUT ANY WARRANTY; without even the implied warranty of
-  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-  Lesser General Public License for more details.
-  You should have received a copy of the GNU Lesser General Public
-  License along with this library; if not, write to the Free Software
-  Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
--->
 <!doctype html>
-<html>
+<html lang="ko">
   <head>
-    <meta http-equiv="Content-type" content="text/html; charset=utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>everyESP485</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#0b0f17" />
+    <title>everyESP485 — Monitor</title>
     <link rel="stylesheet" href="./style.css" />
     <script type="text/javascript">
-      var ws = null;
+      "use strict";
+
+      let ws = null;
       let dbgtype = "HEX";
       let inputtype = "HEX";
-
-      function ge(s) {
-        return document.getElementById(s);
-      }
-      function ce(s) {
-        return document.createElement(s);
-      }
-      function stb() {
-        document.querySelector("#dbg").scrollTo(0, document.querySelector("#dbg").scrollHeight);
-      }
-      function sendBlob(str) {
-        var buf = new Uint8Array(str.length);
-        for (var i = 0; i < str.length; ++i) buf[i] = str.charCodeAt(i);
-        ws.send(buf);
-      }
-      const MAX_LINES = 500;
-      const MAX_BYTES = 64;
+      let paused = false;
+      let crcAppend = false; // +CRC 토글 (HEX 모드에서만 유효)
+      let reconnectAttempts = 0;
+      const pageStartMs = performance.now();
+      let logBuffer = [];
+      const MAX_LINES = 1000;
+      const MAX_LOG_ENTRIES = 5000;
       const MAX_TEXT = 256;
+      const HEX_BYTES_PER_LINE = 16;
+      const RECONNECT_DELAYS_MS = [1000, 2000, 5000, 10000, 30000];
 
+      function ge(s) { return document.getElementById(s); }
+      function ce(s) { return document.createElement(s); }
+      function tsLabel() {
+        return ((performance.now() - pageStartMs) | 0).toString().padStart(7, " ");
+      }
+      function setStatus(state, msg) {
+        const dot = ge("statusDot");
+        const lbl = ge("statusLbl");
+        if (dot) dot.className = "dot " + state;
+        if (lbl) lbl.innerText = msg || state;
+      }
       function trimDbg() {
         const dbg = ge("dbg");
         while (dbg.childNodes.length > MAX_LINES) {
           dbg.removeChild(dbg.firstChild);
         }
       }
-
-      function formatHex(bytes) {
-        const len = Math.min(bytes.length, MAX_BYTES);
-        let out = "";
-        for (let i = 0; i < len; i++) {
-          out += bytes[i].toString(16).padStart(2, "0") + " ";
+      function trimLogBuffer() {
+        if (logBuffer.length > MAX_LOG_ENTRIES) {
+          logBuffer.splice(0, logBuffer.length - MAX_LOG_ENTRIES);
         }
-        if (bytes.length > MAX_BYTES) out += "...";
-        return out;
+      }
+      function scrollBottom() {
+        const dbg = ge("dbg");
+        if (!paused) dbg.scrollTo(0, dbg.scrollHeight);
       }
 
-      function addMessage(m) {
-        var msg = ce("div");
-        msg.innerText = m;
-        ge("dbg").appendChild(msg);
-        trimDbg();
-        stb();
+      function formatHexLines(bytes) {
+        // xxd 스타일: "OFFSET  HEX(16) ASCII"
+        const lines = [];
+        for (let off = 0; off < bytes.length; off += HEX_BYTES_PER_LINE) {
+          const end = Math.min(off + HEX_BYTES_PER_LINE, bytes.length);
+          let hex = "";
+          let asc = "";
+          for (let k = 0; k < HEX_BYTES_PER_LINE; k++) {
+            if (off + k < end) {
+              const c = bytes[off + k];
+              hex += c.toString(16).padStart(2, "0") + " ";
+              asc += c >= 0x20 && c < 0x7f ? String.fromCharCode(c) : ".";
+            } else {
+              hex += "   ";
+            }
+          }
+          lines.push(off.toString(16).padStart(4, "0") + "  " + hex + " " + asc);
+        }
+        return lines;
       }
+
+      function makeLineNode(entry) {
+        const div = ce("div");
+        div.className = "line " + entry.kind;
+        const arrow = entry.kind === "rx" ? "<<" : entry.kind === "tx" ? ">>" : "  ";
+        div.innerText = entry.ts + " " + arrow + " " + entry.text;
+        return div;
+      }
+
+      function addLine(kind, text) {
+        const entry = { ts: tsLabel(), kind: kind, text: text };
+        logBuffer.push(entry);
+        trimLogBuffer();
+        if (paused) return;
+        ge("dbg").appendChild(makeLineNode(entry));
+        trimDbg();
+        scrollBottom();
+      }
+
+      function renderRx(data) {
+        if (data instanceof ArrayBuffer) {
+          const bytes = new Uint8Array(data);
+          if (dbgtype === "HEX") {
+            const lines = formatHexLines(bytes);
+            for (const l of lines) addLine("rx", l);
+          } else {
+            const text = new TextDecoder().decode(bytes);
+            addLine("rx", text.length > MAX_TEXT ? text.slice(0, MAX_TEXT) + "..." : text);
+          }
+        } else {
+          const text = String(data);
+          addLine("rx", text.length > MAX_TEXT ? text.slice(0, MAX_TEXT) + "..." : text);
+        }
+      }
+
       function startSocket() {
+        setStatus("connecting", "연결 중…");
         ws = new WebSocket("ws://" + document.location.host + "/ws", ["arduino"]);
         ws.binaryType = "arraybuffer";
-        ws.onopen = function (e) {
-          addMessage("Connected");
+        ws.onopen = function () {
+          reconnectAttempts = 0;
+          setStatus("connected", "연결됨");
+          addLine("sys", "Connected");
         };
-        ws.onclose = function (e) {
-          addMessage("Disconnected");
+        ws.onclose = function () {
+          setStatus("reconnecting", "재연결 대기…");
+          addLine("sys", "Disconnected");
+          scheduleReconnect();
         };
         ws.onerror = function (e) {
           console.log("ws error", e);
-          addMessage("Error");
+          addLine("sys", "Error");
         };
         ws.onmessage = function (e) {
-          let msg = "";
-          if (dbgtype === "HEX") {
-            msg = "HEX:";
-            if (e.data instanceof ArrayBuffer) {
-              msg += formatHex(new Uint8Array(e.data));
-            } else {
-              msg += String(e.data).slice(0, MAX_TEXT);
-            }
-          } else {
-            msg = "TXT:";
-            if (e.data instanceof ArrayBuffer) {
-              const text = new TextDecoder().decode(e.data);
-              msg += text.length > MAX_TEXT ? text.slice(0, MAX_TEXT) + "..." : text;
-            } else {
-              const text = String(e.data);
-              msg += text.length > MAX_TEXT ? text.slice(0, MAX_TEXT) + "..." : text;
-            }
-          }
-
-          addMessage(msg);
+          renderRx(e.data);
         };
+      }
+      function scheduleReconnect() {
+        const idx = Math.min(reconnectAttempts, RECONNECT_DELAYS_MS.length - 1);
+        const delay = RECONNECT_DELAYS_MS[idx];
+        reconnectAttempts++;
+        setStatus("reconnecting", "재연결 " + (delay / 1000) + "초 후");
+        setTimeout(startSocket, delay);
+      }
+
+      function setupInput() {
         ge("input_el").onkeydown = function (e) {
-          // 엔터키(13)를 입력하면
-          if (e.keyCode == 13 && ge("input_el").value != "") {
-            // 문자열 송신 방식에 따라 구분
-            if (inputtype === "ASCII") {
-              ws.send(ge("input_el").value);
-            } else {
-              let txt = ge("input_el").value;
-              txt = "0x" + txt.replaceAll(" ", ";0x");
-              const uint8 = new Uint8Array(txt.split(";"));
-              ws.send(uint8);
-            }
-            addMessage(">>>:" + ge("input_el").value);
+          if (e.keyCode == 13 && ge("input_el").value !== "") {
+            sendUserPayload(ge("input_el").value);
             ge("input_el").value = "";
           }
         };
       }
-      function startEvents() {
-        var es = new EventSource("/events");
-        es.onopen = function (e) {
-          addMessage("Events Opened");
-        };
-        es.onerror = function (e) {
-          if (e.target.readyState != EventSource.OPEN) {
-            addMessage("Events Closed");
+
+      let searchTerm = "";
+      function applySearch() {
+        const dbg = ge("dbg");
+        const term = searchTerm.toLowerCase();
+        if (!term) {
+          for (const child of dbg.children) {
+            child.classList.remove("match");
+            child.style.display = "";
           }
-        };
-        es.onmessage = function (e) {
-          addMessage("Event: " + e.data);
-        };
-        es.addEventListener(
-          "ota",
-          function (e) {
-            addMessage("Event[ota]: " + e.data);
-          },
-          false,
-        );
+          return;
+        }
+        for (const child of dbg.children) {
+          const hit = child.innerText.toLowerCase().includes(term);
+          child.classList.toggle("match", hit);
+          child.style.display = hit ? "" : "none";
+        }
       }
+      function toggleSearch(force) {
+        const bar = ge("searchBar");
+        const visible = force !== undefined ? force : !bar.classList.contains("visible");
+        bar.classList.toggle("visible", visible);
+        if (visible) {
+          ge("searchInput").focus();
+          ge("searchInput").select();
+        } else {
+          searchTerm = "";
+          ge("searchInput").value = "";
+          applySearch();
+        }
+      }
+      function setupSearch() {
+        const i = ge("searchInput");
+        i.addEventListener("input", () => {
+          searchTerm = i.value;
+          applySearch();
+        });
+        i.addEventListener("keydown", (e) => {
+          if (e.key === "Escape") { toggleSearch(false); ge("dbg").focus(); }
+        });
+      }
+      function setupShortcuts() {
+        document.addEventListener("keydown", (e) => {
+          const tag = (e.target && e.target.tagName) || "";
+          const inField = tag === "INPUT" || tag === "TEXTAREA";
+          if (e.key === "/" && !inField) {
+            e.preventDefault();
+            toggleSearch(true);
+          } else if (e.key === "Escape") {
+            if (ge("searchBar").classList.contains("visible")) {
+              toggleSearch(false);
+            } else if (!inField) {
+              clearLog();
+            }
+          } else if (e.code === "Space" && !inField) {
+            e.preventDefault();
+            togglePause();
+          }
+        });
+      }
+      function crc16Modbus(bytes) {
+        let crc = 0xffff;
+        for (let i = 0; i < bytes.length; i++) {
+          crc ^= bytes[i];
+          for (let j = 0; j < 8; j++) {
+            if (crc & 0x0001) crc = (crc >> 1) ^ 0xa001;
+            else crc >>= 1;
+          }
+        }
+        return crc & 0xffff;
+      }
+      function appendCrcModbus(bytes) {
+        const crc = crc16Modbus(bytes);
+        const out = new Uint8Array(bytes.length + 2);
+        out.set(bytes);
+        out[bytes.length] = crc & 0xff;        // low byte (Modbus little-endian)
+        out[bytes.length + 1] = (crc >> 8) & 0xff;
+        return out;
+      }
+      function bytesToHexString(bytes) {
+        let s = "";
+        for (let i = 0; i < bytes.length; i++) {
+          s += bytes[i].toString(16).padStart(2, "0");
+          if (i < bytes.length - 1) s += " ";
+        }
+        return s;
+      }
+      function parseHexInput(v) {
+        const tokens = v.trim().split(/\s+/).filter((t) => t.length > 0);
+        const bytes = new Uint8Array(tokens.length);
+        for (let i = 0; i < tokens.length; i++) {
+          const n = parseInt(tokens[i], 16);
+          if (Number.isNaN(n) || n < 0 || n > 0xff) return null;
+          bytes[i] = n;
+        }
+        return bytes;
+      }
+
+      function sendUserPayload(v, opts) {
+        const skipCrc = opts && opts.skipCrc;
+        if (!ws || ws.readyState !== WebSocket.OPEN) {
+          addLine("sys", "Not connected — drop: " + v);
+          return;
+        }
+        if (inputtype === "ASCII") {
+          ws.send(v);
+          addLine("tx", v);
+          return;
+        }
+        const bytes = parseHexInput(v);
+        if (!bytes) {
+          addLine("sys", "HEX 파싱 실패: " + v);
+          return;
+        }
+        const useCrc = crcAppend && !skipCrc;
+        const out = useCrc ? appendCrcModbus(bytes) : bytes;
+        ws.send(out);
+        addLine("tx", useCrc ? bytesToHexString(out) + "  (+CRC)" : bytesToHexString(out));
+      }
+
+      function startEvents() {
+        const es = new EventSource("/events");
+        es.onopen = function () { addLine("sys", "Events Opened"); };
+        es.onerror = function (e) {
+          if (e.target.readyState != EventSource.OPEN) addLine("sys", "Events Closed");
+        };
+        es.onmessage = function (e) { addLine("sys", "Event: " + e.data); };
+        es.addEventListener("ota", function (e) { addLine("sys", "Event[ota]: " + e.data); }, false);
+      }
+
       async function savePreset(data) {
-        console.log(data);
         try {
-          response = await fetch("/savepreset", {
+          await fetch("/savepreset", {
             method: "POST",
-            headers: {
-              "Content-Type": "text/plain",
-            },
+            headers: { "Content-Type": "text/plain" },
             body: JSON.stringify(data),
           });
         } catch (err) {
@@ -157,98 +285,282 @@
         }
       }
       function callPreset(e) {
-        // 문자열 송신 방식에 따라 구분
-        if (inputtype === "ASCII") {
-          ws.send(e.target.getAttribute("data-preset"));
-        } else {
-          let txt = e.target.getAttribute("data-preset");
-          txt = "0x" + txt.replaceAll(" ", ";0x");
-          const uint8 = new Uint8Array(txt.split(";"));
-          ws.send(uint8);
-        }
-        addMessage(">>>:" + e.target.getAttribute("data-preset"));
+        const v = e.target.getAttribute("data-preset");
+        if (!v) return;
+        // preset은 보통 CRC가 이미 포함된 완성 패킷이므로 +CRC 토글을 무시
+        sendUserPayload(v, { skipCrc: true });
       }
       async function loadPreset() {
-        // 설정파일 불러오기
-        const reader = new FileReader();
-        let preset = await fetch("./preset.ini").then((r) => r.json());
-        preset.data.map((e, i) => {
+        const raw = await fetch("./preset.ini").then((r) => r.json());
+        // 구 스키마(["hex string", ...])도 자동 변환
+        const items = (raw.data || []).map((e) => {
+          if (typeof e === "string") return { name: "", hex: e, note: "" };
+          return { name: e.name || "", hex: e.hex || "", note: e.note || "" };
+        });
+        const schema = { version: 1, data: items };
+
+        const popup = ge("popup");
+        const header = ce("div");
+        header.className = "popup-header";
+        header.innerHTML = '<span>프리셋 편집</span>';
+        const closeBtn = ce("button");
+        closeBtn.type = "button";
+        closeBtn.className = "btn-ghost";
+        closeBtn.innerText = "닫기";
+        closeBtn.onclick = togglePopup;
+        header.appendChild(closeBtn);
+        popup.appendChild(header);
+
+        items.forEach((item, i) => {
           const btn1 = ce("button");
+          btn1.type = "button";
           btn1.id = "preset-buttn-" + i;
-          btn1.setAttribute("data-preset", e);
+          btn1.setAttribute("data-preset", item.hex);
+          btn1.title = item.name || item.hex || "#" + i;
           btn1.onclick = (evt) => callPreset(evt);
-          btn1.innerText = "#" + i;
+          btn1.innerText = item.name ? item.name : "#" + i;
           ge("presetcall").appendChild(btn1);
 
-          const div = ce("div");
-          div.innerText = i + ":";
-          div.id = "preset-div" + i;
-          ge("popup").appendChild(div);
+          const row = ce("div");
+          row.className = "preset-row";
+          row.id = "preset-div" + i;
 
-          const input = ce("input");
-          input.value = e;
-          input.id = "preset-input" + i;
-          ge("preset-div" + i).appendChild(input);
+          const idxLabel = ce("span");
+          idxLabel.className = "idx";
+          idxLabel.innerText = "#" + i;
+          row.appendChild(idxLabel);
 
-          const btn2 = ce("button");
-          btn2.innerText = "저장";
-          btn2.value = i;
-          btn2.onclick = (e) => {
-            const msg = ge("preset-input" + i).value;
-            preset.data[e.target.value] = msg;
-            btn1.setAttribute("data-preset", msg);
-            savePreset(preset);
+          const nameInput = ce("input");
+          nameInput.placeholder = "이름";
+          nameInput.value = item.name;
+          nameInput.id = "preset-name" + i;
+          row.appendChild(nameInput);
+
+          const hexInput = ce("input");
+          hexInput.placeholder = "HEX 또는 ASCII";
+          hexInput.value = item.hex;
+          hexInput.id = "preset-hex" + i;
+          row.appendChild(hexInput);
+
+          const saveBtn = ce("button");
+          saveBtn.type = "button";
+          saveBtn.innerText = "저장";
+          saveBtn.onclick = () => {
+            item.name = nameInput.value;
+            item.hex = hexInput.value;
+            btn1.setAttribute("data-preset", item.hex);
+            btn1.innerText = item.name || "#" + i;
+            btn1.title = item.name || item.hex || "#" + i;
+            savePreset(schema);
           };
-          ge("preset-div" + i).appendChild(btn2);
+          row.appendChild(saveBtn);
+
+          ge("popup").appendChild(row);
         });
+      }
+
+      function togglePopup() {
+        ge("popup").classList.toggle("hidden");
+      }
+      function toggleDbgType() {
+        dbgtype = dbgtype === "HEX" ? "ASCII" : "HEX";
+        document.querySelector("#dbgtype button").innerText =
+          dbgtype === "HEX" ? "HEX > ASCII" : "ASCII > HEX";
+      }
+      function toggleInputType() {
+        inputtype = inputtype === "HEX" ? "ASCII" : "HEX";
+        ge("inputTypeBtn").innerText = inputtype;
+        updateCrcBtn();
+      }
+      function toggleCrc() {
+        if (inputtype !== "HEX") return; // ASCII에서는 의미 없음
+        crcAppend = !crcAppend;
+        updateCrcBtn();
+      }
+      function updateCrcBtn() {
+        const btn = ge("crcBtn");
+        if (!btn) return;
+        if (inputtype !== "HEX") {
+          btn.classList.remove("active");
+          btn.disabled = true;
+          btn.title = "HEX 모드에서만 사용 가능";
+        } else {
+          btn.disabled = false;
+          btn.title = "마지막 2바이트로 Modbus CRC16 자동 부착";
+          btn.classList.toggle("active", crcAppend);
+        }
+      }
+      function togglePause() {
+        paused = !paused;
+        ge("pauseBtn").innerText = paused ? "재개" : "일시정지";
+        if (!paused) {
+          // 재개 시: 누락분 포함해 마지막 MAX_LINES 만큼 다시 그림
+          const dbg = ge("dbg");
+          dbg.innerHTML = "";
+          const start = Math.max(0, logBuffer.length - MAX_LINES);
+          for (let k = start; k < logBuffer.length; k++) {
+            dbg.appendChild(makeLineNode(logBuffer[k]));
+          }
+          scrollBottom();
+        }
+      }
+      function clearLog() {
+        logBuffer = [];
+        ge("dbg").innerHTML = "";
+      }
+      function saveLog() {
+        const lines = logBuffer.map((e) => {
+          const arrow = e.kind === "rx" ? "<<" : e.kind === "tx" ? ">>" : "  ";
+          return e.ts + " " + arrow + " " + e.text;
+        });
+        const blob = new Blob([lines.join("\n") + "\n"], { type: "text/plain;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const a = ce("a");
+        const ts = new Date().toISOString().replace(/[:.]/g, "-");
+        a.href = url;
+        a.download = "everyESP485-" + ts + ".log";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }
+
+      function formatUptime(s) {
+        s = Number(s) || 0;
+        const m = Math.floor(s / 60);
+        const ss = s % 60;
+        if (m < 60) return m + ":" + String(ss).padStart(2, "0");
+        const h = Math.floor(m / 60);
+        const mm = m % 60;
+        return h + "h" + String(mm).padStart(2, "0") + "m";
+      }
+      const BAUD_LIST = [1200, 2400, 4800, 9600, 19200, 38400, 57600, 74880, 115200, 230400];
+      let currentBaud = 9600;
+      function buildBaudSelect() {
+        const sel = ge("baudSel");
+        if (!sel) return;
+        sel.innerHTML = "";
+        for (const b of BAUD_LIST) {
+          const opt = ce("option");
+          opt.value = String(b);
+          opt.text = b.toString();
+          sel.appendChild(opt);
+        }
+        sel.value = String(currentBaud);
+        sel.onchange = onBaudChange;
+      }
+      async function onBaudChange(e) {
+        const sel = e.target;
+        const next = parseInt(sel.value, 10);
+        if (!next || next === currentBaud) return;
+        const prev = currentBaud;
+        sel.disabled = true;
+        try {
+          const r = await fetch("/api/baud", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ baud: next }),
+          });
+          if (!r.ok) throw new Error("HTTP " + r.status);
+          const j = await r.json();
+          currentBaud = j.baud;
+          sel.value = String(currentBaud);
+          addLine("sys", "Baud → " + currentBaud);
+        } catch (err) {
+          addLine("sys", "Baud 변경 실패: " + err);
+          sel.value = String(prev);
+        } finally {
+          sel.disabled = false;
+        }
+      }
+      async function loadBaud() {
+        try {
+          const r = await fetch("/api/baud").then((res) => res.json());
+          if (r && r.baud) {
+            currentBaud = r.baud;
+            const sel = ge("baudSel");
+            if (sel) sel.value = String(currentBaud);
+          }
+        } catch (e) {
+          // 무시: pollStatus가 별도로 동작하므로 첫 조회 실패는 치명적이지 않음.
+        }
+      }
+      async function pollStatus() {
+        try {
+          const r = await fetch("/api/status").then((res) => res.json());
+          const ip = r.ip || "?";
+          const rssi = r.rssi !== undefined ? r.rssi + "dBm" : r.mode || "";
+          const heap = ((r.free_heap || 0) / 1024).toFixed(0) + "k";
+          const up = formatUptime(r.uptime_s);
+          const drops = r.ws_total ? r.ws_total.dropped : 0;
+          const cli = r.ws_clients !== undefined ? r.ws_clients : "?";
+          let line = "v" + r.version + " · " + ip + " · " + rssi + " · heap " + heap + " · up " + up + " · ws " + cli;
+          if (r.fs && r.fs.total) {
+            const pct = Math.round((r.fs.used / r.fs.total) * 100);
+            line += " · fs " + pct + "%";
+          }
+          if (drops > 0) line += " · drops " + drops;
+          if (r.baud) line += " · " + r.baud + "bps";
+          ge("infoLine").innerText = line;
+          if (r.baud && r.baud !== currentBaud) {
+            currentBaud = r.baud;
+            const sel = ge("baudSel");
+            if (sel && document.activeElement !== sel) sel.value = String(currentBaud);
+          }
+        } catch (e) {
+          ge("infoLine").innerText = "status: offline";
+        }
       }
       function onBodyLoad() {
         startSocket();
         startEvents();
+        setupInput();
+        setupSearch();
+        setupShortcuts();
+        buildBaudSelect();
+        loadBaud();
         loadPreset();
-      }
-      function togglePopup() {
-        const popup = document.querySelector("#popup");
-        if (popup.getAttribute("style") === "visibility: visible") {
-          popup.setAttribute("style", "visibility: hidden");
-        } else if (popup.getAttribute("style") === "visibility: hidden") {
-          popup.setAttribute("style", "visibility: visible");
-        }
-      }
-      function toggleDbgType() {
-        if (dbgtype === "HEX") {
-          dbgtype = "ASCII";
-          document.querySelector("#dbgtype button").innerText = "ASCII > HEX";
-        } else {
-          dbgtype = "HEX";
-          document.querySelector("#dbgtype button").innerText = "HEX > ASCII";
-        }
-      }
-      function toggleInputType() {
-        if (inputtype === "HEX") {
-          inputtype = "ASCII";
-          document.querySelector("#input_div button").innerText = "ASCII";
-        } else {
-          inputtype = "HEX";
-          document.querySelector("#input_div button").innerText = "HEX";
-        }
+        pollStatus();
+        setInterval(pollStatus, 2000);
       }
     </script>
   </head>
-  <body id="body" onload="onBodyLoad()">
-    <div id="dbgtype">문자열 표시형식 전환<button onclick="toggleDbgType()">HEX > ASCII</button></div>
+  <body id="body" class="page-monitor" onload="onBodyLoad()">
+    <div id="topbar">
+      <div id="status">
+        <span id="statusDot" class="dot connecting"></span>
+        <span id="statusLbl">연결 중…</span>
+      </div>
+      <div id="infoLine">…</div>
+      <div id="topbar_actions">
+        <label class="baud-wrap" title="RS485 baud rate">
+          <span class="baud-lbl">baud</span>
+          <select id="baudSel" aria-label="baud rate"></select>
+        </label>
+        <button type="button" id="pauseBtn" onclick="togglePause()">일시정지</button>
+        <button type="button" onclick="clearLog()">클리어</button>
+        <button type="button" onclick="saveLog()">저장</button>
+      </div>
+      <div id="dbgtype"><button type="button" onclick="toggleDbgType()">HEX > ASCII</button></div>
+    </div>
+    <div id="searchBar">
+      <input type="search" id="searchInput" placeholder="필터 (substring, 비우면 전체)" autocomplete="off" />
+      <span class="hint">Esc 닫기</span>
+    </div>
     <pre id="dbg"></pre>
-    <div id="popup" style="visibility: hidden"></div>
+    <div id="popup" class="hidden"></div>
     <div id="footer">
       <div id="buttons">
-        <button onclick="javascript: window.location.href = './index.htm';">HOME</button>
+        <button type="button" onclick="javascript: window.location.href = './index.htm';">HOME</button>
         <div id="presetcall"></div>
-        <button onclick="togglePopup()">PRESET</button>
+        <button type="button" onclick="togglePopup()">PRESET</button>
       </div>
       <div id="input_div">
-        <button onclick="toggleInputType()">HEX</button>
-        >
-        <input type="text" value="" id="input_el" />
+        <button type="button" id="inputTypeBtn" onclick="toggleInputType()">HEX</button>
+        <button type="button" id="crcBtn" onclick="toggleCrc()" title="마지막 2바이트로 Modbus CRC16 자동 부착">+CRC</button>
+        <span class="arrow">›</span>
+        <label for="input_el" class="visually-hidden">패킷 입력</label>
+        <input type="text" value="" id="input_el" placeholder="HEX/ASCII 입력 후 Enter" />
       </div>
     </div>
   </body>
